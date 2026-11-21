@@ -4,7 +4,6 @@ import {
 	BOTTOMS_LIST,
 	CATEGORIES,
 	type CategoryId,
-	CHALLENGE_THEMES,
 	CHEEK_STYLES,
 	COLOR_THEMES,
 	type ColorThemeId,
@@ -13,7 +12,6 @@ import {
 	decodeStateFromQuery,
 	EYE_STYLES,
 	encodeStateToQuery,
-	evaluateChallenge,
 	FACE_ACCS,
 	HAIR_COLORS,
 	HAIR_STYLES,
@@ -30,8 +28,6 @@ import {
 	SLEEVES_LIST,
 	TOPS_LIST,
 } from "../data/items";
-import { SoundEngine } from "../engine/audio";
-import { renderPixelRoze } from "../engine/pixelRenderer";
 import { renderCharacter } from "../engine/renderer";
 import { CANVAS_H, CANVAS_W } from "../engine/rig";
 
@@ -43,15 +39,20 @@ export class DressUpApp {
 	private state: DressUpState;
 	private history: DressUpState[] = [];
 	private activeCategory: CategoryId = "presets";
-	private animate = true;
-	private mainPixelMode = false;
-	private currentQuote = PRESET_OUTFITS[0].quote;
-	private sound = new SoundEngine();
+	private faceZoom = false;
+	private stageExpanded = false;
+	private panX = 0;
+	private panY = 0;
+	private dragging = false;
+	private dragStartX = 0;
+	private dragStartY = 0;
+	private lastTapTime = 0;
 
+	private workspaceEl!: HTMLElement;
 	private mainCanvas!: HTMLCanvasElement;
-	private pixelCanvas!: HTMLCanvasElement;
-	private pixelWipeEl!: HTMLButtonElement;
-	private speechTextEl!: HTMLElement;
+	private zoomBtn!: HTMLButtonElement;
+	private toneBtn!: HTMLButtonElement;
+	private expandBtn!: HTMLButtonElement;
 	private wardrobeEl!: HTMLElement;
 	private tabsEl!: HTMLElement;
 	private modalEl!: HTMLElement;
@@ -69,6 +70,7 @@ export class DressUpApp {
 		this.buildShell();
 		this.renderTabs();
 		this.renderWardrobe();
+		this.syncHudButtons();
 		this.bindGlobalShortcuts();
 		this.startLoop();
 	}
@@ -76,7 +78,7 @@ export class DressUpApp {
 	private buildShell(): void {
 		this.root.innerHTML = "";
 
-		// Topbar
+		// Compact Topbar (mobile-first: title + 4 clean actions)
 		const topbar = document.createElement("header");
 		topbar.className = "topbar";
 
@@ -84,10 +86,7 @@ export class DressUpApp {
 		brand.className = "brand";
 		brand.innerHTML = `
 			<div class="brand-crest" aria-hidden="true"></div>
-			<div>
-				<div class="brand-title">束音ロゼの着せ替え館</div>
-				<span class="brand-sub">TABANE ROZE // ROSENFELD DRESS-UP</span>
-			</div>
+			<div class="brand-title">束音ロゼ着せ替え</div>
 		`;
 
 		const actions = document.createElement("div");
@@ -106,21 +105,18 @@ export class DressUpApp {
 			b.innerHTML = `<span>${icon}</span><span class="${hideLabelOnMobile ? "btn-label-hide-sm" : ""}">${label}</span>`;
 			b.addEventListener("click", onClick);
 			actions.appendChild(b);
-			return b;
 		};
 
 		addTopBtn("おまかせ", "🎲", "", () => this.randomizeOutfit(), true);
 		addTopBtn("公式", "↺", "", () => this.resetToOfficial(), true);
-		addTopBtn("お題採点", "★", "btn-jade", () => this.openChallengeModal());
 		addTopBtn("保存帳", "📁", "", () => this.openClosetModal(), true);
-		addTopBtn("共有", "🔗", "", () => void this.copyShareUrl(), true);
-		addTopBtn("撮影", "📷", "btn-primary", () => this.openExportModal());
+		addTopBtn("保存/共有", "📷", "btn-primary", () => this.openExportModal());
 
 		topbar.append(brand, actions);
 
-		// Main workspace
-		const workspace = document.createElement("main");
-		workspace.className = "workspace";
+		// Workspace
+		this.workspaceEl = document.createElement("main");
+		this.workspaceEl.className = "workspace";
 
 		// Stage Pane
 		const stagePane = document.createElement("section");
@@ -133,8 +129,9 @@ export class DressUpApp {
 		this.mainCanvas.id = "main-canvas";
 		this.mainCanvas.width = CANVAS_W;
 		this.mainCanvas.height = CANVAS_H;
+		this.bindStageGestures(stageFrame);
 
-		// Stage floating HUD
+		// Minimal Stage Floating HUD (Top Left & Top Right only)
 		const hudTop = document.createElement("div");
 		hudTop.className = "stage-hud-top";
 
@@ -147,90 +144,39 @@ export class DressUpApp {
 		undoBtn.textContent = "↶ もどす";
 		undoBtn.addEventListener("click", () => this.undo());
 
-		const pixelToggleBtn = document.createElement("button");
-		pixelToggleBtn.type = "button";
-		pixelToggleBtn.className = "hud-btn";
-		pixelToggleBtn.textContent = "👾 ドット表示";
-		pixelToggleBtn.addEventListener("click", () => {
-			this.sound.playTap();
-			this.mainPixelMode = !this.mainPixelMode;
-			pixelToggleBtn.classList.toggle("on", this.mainPixelMode);
-			this.syncCanvasMode();
-		});
+		this.zoomBtn = document.createElement("button");
+		this.zoomBtn.type = "button";
+		this.zoomBtn.className = "hud-btn";
+		this.zoomBtn.addEventListener("click", () => this.toggleFaceZoom());
 
-		const animBtn = document.createElement("button");
-		animBtn.type = "button";
-		animBtn.className = "hud-btn on";
-		animBtn.textContent = "✦ 動き ON";
-		animBtn.addEventListener("click", () => {
-			this.sound.playTap();
-			this.animate = !this.animate;
-			animBtn.classList.toggle("on", this.animate);
-			animBtn.textContent = this.animate ? "✦ 動き ON" : "✦ 動き OFF";
-		});
-
-		leftGroup.append(undoBtn, pixelToggleBtn, animBtn);
+		leftGroup.append(undoBtn, this.zoomBtn);
 
 		const rightGroup = document.createElement("div");
 		rightGroup.className = "hud-pill-group";
 
-		const bgmBtn = document.createElement("button");
-		bgmBtn.type = "button";
-		bgmBtn.className = "hud-btn";
-		bgmBtn.textContent = "♫ BGM OFF";
-		bgmBtn.addEventListener("click", () => {
-			const on = this.sound.toggleBgm();
-			bgmBtn.classList.toggle("on", on);
-			bgmBtn.textContent = on ? "♫ BGM ON" : "♫ BGM OFF";
+		this.toneBtn = document.createElement("button");
+		this.toneBtn.type = "button";
+		this.toneBtn.className = "hud-btn";
+		this.toneBtn.addEventListener("click", () => {
+			this.updateState({
+				bgTone: this.state.bgTone === "light" ? "dark" : "light",
+			});
 		});
 
-		const seBtn = document.createElement("button");
-		seBtn.type = "button";
-		seBtn.className = "hud-btn on";
-		seBtn.textContent = "🔊 SE";
-		seBtn.addEventListener("click", () => {
-			const next = !this.sound.isSeEnabled();
-			this.sound.setSeEnabled(next);
-			seBtn.classList.toggle("on", next);
-			seBtn.textContent = next ? "🔊 SE" : "🔇 SE";
-			if (next) this.sound.playTap();
+		this.expandBtn = document.createElement("button");
+		this.expandBtn.type = "button";
+		this.expandBtn.className = "hud-btn mobile-only";
+		this.expandBtn.addEventListener("click", () => {
+			this.stageExpanded = !this.stageExpanded;
+			this.workspaceEl.classList.toggle("stage-expanded", this.stageExpanded);
+			this.syncHudButtons();
 		});
 
-		rightGroup.append(bgmBtn, seBtn);
+		rightGroup.append(this.toneBtn, this.expandBtn);
 		hudTop.append(leftGroup, rightGroup);
 
-		// Speech Bubble
-		const speech = document.createElement("div");
-		speech.className = "speech-bubble";
-		const spName = document.createElement("span");
-		spName.className = "speech-name";
-		spName.textContent = "束音ロゼ";
-		this.speechTextEl = document.createElement("span");
-		this.speechTextEl.textContent = this.currentQuote;
-		speech.append(spName, this.speechTextEl);
-
-		// Pixel corner wipe
-		this.pixelWipeEl = document.createElement("button");
-		this.pixelWipeEl.type = "button";
-		this.pixelWipeEl.className = "pixel-wipe";
-		this.pixelWipeEl.title = "クリックでドット絵拡大表示に切替";
-		this.pixelCanvas = document.createElement("canvas");
-		this.pixelCanvas.id = "pixel-canvas";
-		this.pixelCanvas.width = 64;
-		this.pixelCanvas.height = 64;
-		const pxLabel = document.createElement("span");
-		pxLabel.className = "pixel-wipe-label";
-		pxLabel.textContent = "64×64 DOT";
-		this.pixelWipeEl.append(this.pixelCanvas, pxLabel);
-		this.pixelWipeEl.addEventListener("click", () => {
-			this.sound.playTap();
-			this.mainPixelMode = !this.mainPixelMode;
-			pixelToggleBtn.classList.toggle("on", this.mainPixelMode);
-			this.syncCanvasMode();
-		});
-
-		stageFrame.append(this.mainCanvas, hudTop, speech, this.pixelWipeEl);
-		stagePane.appendChild(stageFrame);
+		stageFrame.append(this.mainCanvas);
+		stagePane.append(stageFrame, hudTop);
 
 		// Wardrobe Pane
 		const wardrobePane = document.createElement("section");
@@ -243,7 +189,7 @@ export class DressUpApp {
 		this.wardrobeEl.className = "wardrobe-scroll";
 
 		wardrobePane.append(this.tabsEl, this.wardrobeEl);
-		workspace.append(stagePane, wardrobePane);
+		this.workspaceEl.append(stagePane, wardrobePane);
 
 		// Modal & Toast
 		this.modalEl = document.createElement("div");
@@ -255,19 +201,68 @@ export class DressUpApp {
 		this.toastEl = document.createElement("div");
 		this.toastEl.className = "toast";
 
-		this.root.append(topbar, workspace, this.modalEl, this.toastEl);
+		this.root.append(topbar, this.workspaceEl, this.modalEl, this.toastEl);
 	}
 
-	private syncCanvasMode(): void {
-		this.mainCanvas.classList.toggle("pixel-mode", this.mainPixelMode);
-		this.pixelWipeEl.classList.toggle("hidden", this.mainPixelMode);
-		if (this.mainPixelMode) {
-			this.mainCanvas.width = 64;
-			this.mainCanvas.height = 64;
-		} else {
-			this.mainCanvas.width = CANVAS_W;
-			this.mainCanvas.height = CANVAS_H;
+	private bindStageGestures(stageFrame: HTMLElement): void {
+		stageFrame.addEventListener("pointerdown", (e) => {
+			if ((e.target as HTMLElement).closest(".hud-btn")) return;
+			const now = Date.now();
+			if (now - this.lastTapTime < 280) {
+				this.toggleFaceZoom();
+				this.lastTapTime = 0;
+				return;
+			}
+			this.lastTapTime = now;
+			if (!this.faceZoom) return;
+			this.dragging = true;
+			this.dragStartX = e.clientX - this.panX;
+			this.dragStartY = e.clientY - this.panY;
+			stageFrame.setPointerCapture(e.pointerId);
+		});
+
+		stageFrame.addEventListener("pointermove", (e) => {
+			if (!this.dragging || !this.faceZoom) return;
+			this.panX = Math.max(-110, Math.min(110, e.clientX - this.dragStartX));
+			this.panY = Math.max(-180, Math.min(90, e.clientY - this.dragStartY));
+			this.applyCanvasTransform();
+		});
+
+		const stopDrag = () => {
+			this.dragging = false;
+		};
+		stageFrame.addEventListener("pointerup", stopDrag);
+		stageFrame.addEventListener("pointercancel", stopDrag);
+	}
+
+	private toggleFaceZoom(): void {
+		this.faceZoom = !this.faceZoom;
+		if (!this.faceZoom) {
+			this.panX = 0;
+			this.panY = 0;
 		}
+		this.applyCanvasTransform();
+		this.syncHudButtons();
+	}
+
+	private applyCanvasTransform(): void {
+		if (!this.faceZoom) {
+			this.mainCanvas.style.transform = "scale(1) translate(0px, 0px)";
+			return;
+		}
+		this.mainCanvas.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(2.0)`;
+	}
+
+	private syncHudButtons(): void {
+		this.zoomBtn.textContent = this.faceZoom ? "🔍 全身" : "🔍 顔アップ";
+		this.zoomBtn.classList.toggle("on", this.faceZoom);
+
+		const isLight = this.state.bgTone === "light";
+		this.toneBtn.textContent = isLight ? "☀️ 明るめ" : "🌙 暗め";
+		this.toneBtn.classList.toggle("light-pill", isLight);
+
+		this.expandBtn.textContent = this.stageExpanded ? "↕ 標準" : "↕ 広く見る";
+		this.expandBtn.classList.toggle("on", this.stageExpanded);
 	}
 
 	private bindGlobalShortcuts(): void {
@@ -289,15 +284,10 @@ export class DressUpApp {
 
 	private startLoop(): void {
 		const loop = (now: number) => {
-			const t = this.animate ? (now - this.startTime) / 1000 : 0;
-			if (this.mainPixelMode) {
-				renderPixelRoze(this.mainCanvas, this.state, t, false);
-			} else {
-				const ctx = this.mainCanvas.getContext("2d");
-				if (ctx) {
-					renderCharacter(ctx, this.state, t, { animate: this.animate });
-				}
-				renderPixelRoze(this.pixelCanvas, this.state, t, false);
+			const t = (now - this.startTime) / 1000;
+			const ctx = this.mainCanvas.getContext("2d");
+			if (ctx) {
+				renderCharacter(ctx, this.state, t, { animate: true });
 			}
 			this.rafId = window.requestAnimationFrame(loop);
 		};
@@ -308,19 +298,11 @@ export class DressUpApp {
 		if (this.rafId !== null) window.cancelAnimationFrame(this.rafId);
 	}
 
-	private updateState(
-		patch: Partial<DressUpState>,
-		quote?: string,
-		silent = false,
-	): void {
+	private updateState(patch: Partial<DressUpState>): void {
 		this.history.push({ ...this.state });
 		if (this.history.length > MAX_HISTORY) this.history.shift();
 		this.state = { ...this.state, ...patch };
-		if (!silent) this.sound.playEquip();
-		if (quote) {
-			this.currentQuote = quote;
-			this.speechTextEl.textContent = quote;
-		}
+		this.syncHudButtons();
 		this.renderWardrobe();
 	}
 
@@ -331,54 +313,42 @@ export class DressUpApp {
 			return;
 		}
 		this.state = prev;
-		this.sound.playTap();
+		this.syncHudButtons();
 		this.renderWardrobe();
-		this.showToast("1つ前の状態に戻しました");
+		this.showToast("1つ前に戻しました");
 	}
 
 	private resetToOfficial(): void {
-		this.sound.playSparkle();
-		this.updateState({ ...DEFAULT_STATE }, PRESET_OUTFITS[0].quote, true);
-		this.showToast("公式立ち絵コーデに戻しました");
+		this.updateState({ ...DEFAULT_STATE });
+		this.showToast("公式立ち絵に戻しました");
 	}
 
 	private randomizeOutfit(): void {
 		const pick = <T>(arr: readonly T[]): T =>
 			arr[Math.floor(Math.random() * arr.length)];
-		this.sound.playSparkle();
-		this.updateState(
-			{
-				pose: pick(POSES).id,
-				hair: pick(HAIR_STYLES).id,
-				hairColor: pick(HAIR_COLORS).id,
-				hairHue: 0,
-				innerHue: 0,
-				eyes: pick(EYE_STYLES).id,
-				mouth: pick(MOUTH_STYLES).id,
-				cheek: pick(CHEEK_STYLES).id,
-				faceAcc: Math.random() < 0.35 ? pick(FACE_ACCS).id : "none",
-				tops: pick(TOPS_LIST).id,
-				topsTheme: pick(COLOR_THEMES).id,
-				topsHue: 0,
-				sleeves: pick(SLEEVES_LIST).id,
-				sleevesTheme: pick(COLOR_THEMES).id,
-				sleevesHue: 0,
-				bottoms: pick(BOTTOMS_LIST).id,
-				bottomsTheme: pick(COLOR_THEMES).id,
-				bottomsHue: 0,
-				legwear: pick(LEGWEAR_LIST).id,
-				legwearTheme: pick(COLOR_THEMES).id,
-				legwearHue: 0,
-				ornament: pick(ORNAMENTS).id,
-				headset: pick(HEADSETS).id,
-				headwear: Math.random() < 0.55 ? pick(HEADWEARS).id : "none",
-				prop: Math.random() < 0.7 ? pick(PROPS).id : "none",
-				bg: pick(BGS).id,
-				backFx: pick(BACK_FXS).id,
-			},
-			"じゃじゃーん！ランダムおまかせコーデ、どうかな？似合ってる？",
-			true,
-		);
+		this.updateState({
+			pose: pick(POSES).id,
+			hair: pick(HAIR_STYLES).id,
+			hairColor: pick(HAIR_COLORS).id,
+			eyes: pick(EYE_STYLES).id,
+			mouth: pick(MOUTH_STYLES).id,
+			cheek: pick(CHEEK_STYLES).id,
+			faceAcc: Math.random() < 0.3 ? pick(FACE_ACCS).id : "none",
+			tops: pick(TOPS_LIST).id,
+			topsTheme: pick(COLOR_THEMES).id,
+			sleeves: pick(SLEEVES_LIST).id,
+			sleevesTheme: pick(COLOR_THEMES).id,
+			bottoms: pick(BOTTOMS_LIST).id,
+			bottomsTheme: pick(COLOR_THEMES).id,
+			legwear: pick(LEGWEAR_LIST).id,
+			legwearTheme: pick(COLOR_THEMES).id,
+			ornament: pick(ORNAMENTS).id,
+			headset: pick(HEADSETS).id,
+			headwear: Math.random() < 0.45 ? pick(HEADWEARS).id : "none",
+			prop: Math.random() < 0.65 ? pick(PROPS).id : "none",
+			bg: pick(BGS).id,
+			backFx: pick(BACK_FXS).id,
+		});
 	}
 
 	private renderTabs(): void {
@@ -387,12 +357,18 @@ export class DressUpApp {
 			const btn = document.createElement("button");
 			btn.type = "button";
 			btn.className = `cat-tab ${this.activeCategory === cat.id ? "active" : ""}`;
-			btn.innerHTML = `<span>${cat.icon}</span><span>${cat.label}</span>`;
+			btn.textContent = cat.label;
 			btn.addEventListener("click", () => {
-				this.sound.playTap();
 				this.activeCategory = cat.id;
 				this.renderTabs();
 				this.renderWardrobe();
+				this.wardrobeEl.scrollTop = 0;
+				const active = this.tabsEl.querySelector(".cat-tab.active");
+				active?.scrollIntoView({
+					behavior: "smooth",
+					inline: "center",
+					block: "nearest",
+				});
 			});
 			this.tabsEl.appendChild(btn);
 		}
@@ -405,46 +381,33 @@ export class DressUpApp {
 		if (cat === "presets") {
 			this.renderPresetSection();
 			this.renderItemSection("ポーズ", POSES, "pose");
-			this.renderOjToggle();
 		} else if (cat === "hair") {
-			this.renderItemSection("髪型スタイル", HAIR_STYLES, "hair");
 			this.renderHairColorSection();
+			this.renderItemSection("髪型", HAIR_STYLES, "hair");
 		} else if (cat === "face") {
 			this.renderItemSection("目・瞳", EYE_STYLES, "eyes");
 			this.renderItemSection("口元", MOUTH_STYLES, "mouth");
-			this.renderItemSection("チーク・ホクロ", CHEEK_STYLES, "cheek");
-			this.renderItemSection("眼鏡・眼帯・バイザー", FACE_ACCS, "faceAcc");
+			this.renderItemSection("チーク", CHEEK_STYLES, "cheek");
+			this.renderItemSection("眼鏡・眼帯", FACE_ACCS, "faceAcc");
 		} else if (cat === "tops") {
-			this.renderColorBar("トップスの配色", "topsTheme", "topsHue");
+			this.renderColorBar("トップスの色", "topsTheme");
 			this.renderItemSection("トップス", TOPS_LIST, "tops");
-		} else if (cat === "sleeves") {
-			this.renderColorBar(
-				"袖・アームウェアの配色",
-				"sleevesTheme",
-				"sleevesHue",
-			);
+			this.renderColorBar("袖の色", "sleevesTheme");
 			this.renderItemSection("袖・アームウェア", SLEEVES_LIST, "sleeves");
 		} else if (cat === "bottoms") {
-			this.renderColorBar("ボトムス・腰布の配色", "bottomsTheme", "bottomsHue");
+			this.renderColorBar("ボトムスの色", "bottomsTheme");
 			this.renderItemSection("ボトムス・腰布", BOTTOMS_LIST, "bottoms");
-		} else if (cat === "legwear") {
-			this.renderColorBar(
-				"靴・レッグウェアの配色",
-				"legwearTheme",
-				"legwearHue",
-			);
+			this.renderColorBar("靴・レッグウェアの色", "legwearTheme");
 			this.renderItemSection("靴・レッグウェア", LEGWEAR_LIST, "legwear");
 		} else if (cat === "accessory") {
-			this.renderItemSection("陰陽玉の髪飾り", ORNAMENTS, "ornament");
-			this.renderItemSection("左耳ヘッドセット", HEADSETS, "headset");
+			this.renderItemSection("陰陽玉", ORNAMENTS, "ornament");
+			this.renderItemSection("ヘッドセット", HEADSETS, "headset");
 			this.renderItemSection("帽子・頭飾り", HEADWEARS, "headwear");
-			this.renderItemSection("手持ち・周囲のマスコット", PROPS, "prop");
+			this.renderItemSection("手持ち・マスコット", PROPS, "prop");
 			this.renderOjToggle();
 		} else if (cat === "bg") {
+			this.renderBgToneBar();
 			this.renderItemSection("背景ロケーション", BGS, "bg");
-			if (this.state.bg === "simple_studio") {
-				this.renderStudioColorPicker();
-			}
 			this.renderItemSection("背面エフェクト", BACK_FXS, "backFx");
 		}
 	}
@@ -452,7 +415,7 @@ export class DressUpApp {
 	private renderPresetSection(): void {
 		const block = document.createElement("div");
 		block.className = "section-block";
-		block.innerHTML = `<div class="section-header"><div class="section-title">お気に入りコーデ一括着せ替え</div></div>`;
+		block.innerHTML = `<div class="section-title">お気に入りコーデ</div>`;
 
 		const grid = document.createElement("div");
 		grid.className = "item-grid";
@@ -471,11 +434,9 @@ export class DressUpApp {
 					</span>
 				</div>
 				<div class="item-name">${p.name}</div>
-				<div class="item-desc">${p.subtitle}</div>
 			`;
 			card.addEventListener("click", () => {
-				this.sound.playSparkle();
-				this.updateState({ ...DEFAULT_STATE, ...p.patch }, p.quote, true);
+				this.updateState({ ...DEFAULT_STATE, ...p.patch });
 			});
 			grid.appendChild(card);
 		}
@@ -483,14 +444,37 @@ export class DressUpApp {
 		this.wardrobeEl.appendChild(block);
 	}
 
+	private renderBgToneBar(): void {
+		const block = document.createElement("div");
+		block.className = "section-block";
+		block.innerHTML = `<div class="section-title">背景の明るさ</div>`;
+
+		const bar = document.createElement("div");
+		bar.className = "seg-bar";
+
+		for (const opt of [
+			{ id: "light" as const, label: "☀️ 明るめ（見やすい）" },
+			{ id: "dark" as const, label: "🌙 暗め（夜・ネオン）" },
+		]) {
+			const b = document.createElement("button");
+			b.type = "button";
+			b.className = `seg-btn ${this.state.bgTone === opt.id ? "active" : ""}`;
+			b.textContent = opt.label;
+			b.addEventListener("click", () => this.updateState({ bgTone: opt.id }));
+			bar.appendChild(b);
+		}
+		block.appendChild(bar);
+		this.wardrobeEl.appendChild(block);
+	}
+
 	private renderOjToggle(): void {
 		const row = document.createElement("div");
 		row.className = "toggle-row";
-		row.innerHTML = `<span>左肩の「0J」刻印を表示</span>`;
+		row.innerHTML = `<span>左肩「0J」刻印</span>`;
 		const btn = document.createElement("button");
 		btn.type = "button";
 		btn.className = `btn ${this.state.ojMark ? "btn-active" : ""}`;
-		btn.textContent = this.state.ojMark ? "表示 ON" : "非表示 OFF";
+		btn.textContent = this.state.ojMark ? "表示 ON" : "OFF";
 		btn.addEventListener("click", () => {
 			this.updateState({ ojMark: !this.state.ojMark });
 		});
@@ -505,7 +489,7 @@ export class DressUpApp {
 	): void {
 		const block = document.createElement("div");
 		block.className = "section-block";
-		block.innerHTML = `<div class="section-header"><div class="section-title">${title}</div></div>`;
+		block.innerHTML = `<div class="section-title">${title}</div>`;
 
 		const grid = document.createElement("div");
 		grid.className = "item-grid";
@@ -523,7 +507,6 @@ export class DressUpApp {
 					${item.badge ? `<span class="item-badge">${item.badge}</span>` : ""}
 				</div>
 				<div class="item-name">${item.name}</div>
-				<div class="item-desc">${item.desc}</div>
 			`;
 			card.addEventListener("click", () => {
 				this.updateState({
@@ -539,14 +522,10 @@ export class DressUpApp {
 	private renderColorBar(
 		title: string,
 		themeKey: "topsTheme" | "sleevesTheme" | "bottomsTheme" | "legwearTheme",
-		hueKey: "topsHue" | "sleevesHue" | "bottomsHue" | "legwearHue",
 	): void {
 		const block = document.createElement("div");
 		block.className = "section-block";
-		block.innerHTML = `<div class="section-header"><div class="section-title">${title}</div></div>`;
-
-		const bar = document.createElement("div");
-		bar.className = "color-bar";
+		block.innerHTML = `<div class="section-title">${title}</div>`;
 
 		const chips = document.createElement("div");
 		chips.className = "theme-chips";
@@ -564,25 +543,18 @@ export class DressUpApp {
 			btn.addEventListener("click", () => {
 				this.updateState({
 					[themeKey]: t.id as ColorThemeId,
-					[hueKey]: 0,
 				} as Partial<DressUpState>);
 			});
 			chips.appendChild(btn);
 		}
-		bar.appendChild(chips);
-		bar.appendChild(this.createHueRow("色相微調整", hueKey));
-
-		block.appendChild(bar);
+		block.appendChild(chips);
 		this.wardrobeEl.appendChild(block);
 	}
 
 	private renderHairColorSection(): void {
 		const block = document.createElement("div");
 		block.className = "section-block";
-		block.innerHTML = `<div class="section-header"><div class="section-title">髪色＆インナーカラー</div></div>`;
-
-		const bar = document.createElement("div");
-		bar.className = "color-bar";
+		block.innerHTML = `<div class="section-title">髪色＆インナー</div>`;
 
 		const chips = document.createElement("div");
 		chips.className = "theme-chips";
@@ -598,73 +570,12 @@ export class DressUpApp {
 				<span>${hc.name}</span>
 			`;
 			btn.addEventListener("click", () => {
-				this.updateState({
-					hairColor: hc.id,
-					hairHue: 0,
-					innerHue: 0,
-				});
+				this.updateState({ hairColor: hc.id });
 			});
 			chips.appendChild(btn);
 		}
-		bar.appendChild(chips);
-		bar.appendChild(this.createHueRow("メイン髪色相", "hairHue"));
-		bar.appendChild(this.createHueRow("インナー・瞳色相", "innerHue"));
-
-		block.appendChild(bar);
+		block.appendChild(chips);
 		this.wardrobeEl.appendChild(block);
-	}
-
-	private createHueRow(
-		label: string,
-		hueKey:
-			| "hairHue"
-			| "innerHue"
-			| "topsHue"
-			| "sleevesHue"
-			| "bottomsHue"
-			| "legwearHue",
-	): HTMLElement {
-		const row = document.createElement("div");
-		row.className = "hue-row";
-		const lbl = document.createElement("span");
-		lbl.textContent = label;
-
-		const slider = document.createElement("input");
-		slider.type = "range";
-		slider.className = "hue-slider";
-		slider.min = "-180";
-		slider.max = "180";
-		slider.step = "5";
-		slider.value = String(this.state[hueKey]);
-		slider.addEventListener("input", () => {
-			this.state = { ...this.state, [hueKey]: Number(slider.value) };
-		});
-
-		const reset = document.createElement("button");
-		reset.type = "button";
-		reset.className = "hue-reset";
-		reset.textContent = "0°";
-		reset.addEventListener("click", () => {
-			this.updateState({ [hueKey]: 0 } as Partial<DressUpState>);
-		});
-
-		row.append(lbl, slider, reset);
-		return row;
-	}
-
-	private renderStudioColorPicker(): void {
-		const row = document.createElement("div");
-		row.className = "toggle-row";
-		row.innerHTML = `<span>スタジオ背景色</span>`;
-
-		const input = document.createElement("input");
-		input.type = "color";
-		input.value = this.state.studioBg;
-		input.addEventListener("input", () => {
-			this.state = { ...this.state, studioBg: input.value };
-		});
-		row.appendChild(input);
-		this.wardrobeEl.appendChild(row);
 	}
 
 	private openModal(inner: HTMLElement): void {
@@ -675,66 +586,6 @@ export class DressUpApp {
 
 	private closeModal(): void {
 		this.modalEl.classList.add("hidden");
-	}
-
-	private openChallengeModal(): void {
-		this.sound.playTap();
-		const card = document.createElement("div");
-		card.className = "modal-card";
-		card.innerHTML = `
-			<div class="modal-head">
-				<div class="modal-title">★ お題コーデチャレンジ</div>
-				<button type="button" class="btn" id="close-modal">✕</button>
-			</div>
-			<p class="item-desc">選んだテーマに合わせてロゼを着せ替えよう！採点ボタンを押すと今のコーデをロゼが評価してくれるよ。</p>
-		`;
-
-		const resultContainer = document.createElement("div");
-		const list = document.createElement("div");
-		list.style.display = "flex";
-		list.style.flexDirection = "column";
-		list.style.gap = "10px";
-
-		for (const th of CHALLENGE_THEMES) {
-			const item = document.createElement("div");
-			item.className = "challenge-card";
-			item.innerHTML = `
-				<div class="item-top">
-					<div>
-						<div class="item-name">${th.title}</div>
-						<div class="item-desc">${th.subtitle}</div>
-					</div>
-					<button type="button" class="btn btn-jade">採点する</button>
-				</div>
-				<div class="item-desc">${th.clientHint}</div>
-			`;
-			const gradeBtn = item.querySelector("button");
-			gradeBtn?.addEventListener("click", () => {
-				const res = evaluateChallenge(this.state, th);
-				this.sound.playFanfare(res.rank);
-				this.currentQuote = res.comment;
-				this.speechTextEl.textContent = res.comment;
-				resultContainer.innerHTML = `
-					<div class="challenge-result">
-						<div style="display:flex;align-items:center;gap:12px;">
-							<div class="rank-badge">${res.rank}</div>
-							<div>
-								<div style="font-weight:800;font-size:1rem;">${th.title} — ${res.score} / 100点</div>
-								<div class="item-desc">一致タグ: ${res.matchedTags.join(", ") || "なし"}</div>
-							</div>
-						</div>
-						<div style="font-size:0.84rem;line-height:1.45;">${res.comment}</div>
-					</div>
-				`;
-			});
-			list.appendChild(item);
-		}
-
-		card.append(resultContainer, list);
-		card
-			.querySelector("#close-modal")
-			?.addEventListener("click", () => this.closeModal());
-		this.openModal(card);
 	}
 
 	private readCloset(): (SavedClosetSlot | null)[] {
@@ -753,15 +604,14 @@ export class DressUpApp {
 	}
 
 	private openClosetModal(): void {
-		this.sound.playTap();
 		const card = document.createElement("div");
 		card.className = "modal-card";
 		card.innerHTML = `
 			<div class="modal-head">
-				<div class="modal-title">📁 マイクローゼット（6枠保存）</div>
+				<div class="modal-title">📁 コーデ保存帳</div>
 				<button type="button" class="btn" id="close-modal">✕</button>
 			</div>
-			<p class="item-desc">お気に入りの着せ替えコーデをブラウザに保存して、いつでも着替えられます。</p>
+			<p class="item-desc">お気に入りのコーデを最大6つ保存できます。</p>
 		`;
 
 		const grid = document.createElement("div");
@@ -774,8 +624,8 @@ export class DressUpApp {
 				const el = document.createElement("div");
 				el.className = "closet-slot";
 				el.innerHTML = slot
-					? `<div class="item-name">スロット ${idx + 1}: ${slot.name}</div><div class="item-desc">${slot.savedAt}</div>`
-					: `<div class="item-name">スロット ${idx + 1}（空き）</div><div class="item-desc">現在のコーデを保存できます</div>`;
+					? `<div class="item-name">枠 ${idx + 1}: ${slot.name}</div><div class="item-desc">${slot.savedAt}</div>`
+					: `<div class="item-name">枠 ${idx + 1}（空き）</div>`;
 
 				const row = document.createElement("div");
 				row.style.display = "flex";
@@ -784,7 +634,7 @@ export class DressUpApp {
 				const saveBtn = document.createElement("button");
 				saveBtn.type = "button";
 				saveBtn.className = "btn btn-jade";
-				saveBtn.textContent = "上書保存";
+				saveBtn.textContent = "保存";
 				saveBtn.addEventListener("click", () => {
 					const next = this.readCloset();
 					next[idx] = {
@@ -793,8 +643,7 @@ export class DressUpApp {
 						state: { ...this.state },
 					};
 					this.writeCloset(next);
-					this.sound.playEquip();
-					this.showToast(`スロット ${idx + 1} に保存しました`);
+					this.showToast(`枠 ${idx + 1} に保存しました`);
 					rebuildGrid();
 				});
 				row.appendChild(saveBtn);
@@ -805,16 +654,13 @@ export class DressUpApp {
 					loadBtn.className = "btn";
 					loadBtn.textContent = "着る";
 					loadBtn.addEventListener("click", () => {
-						this.updateState(
-							{ ...DEFAULT_STATE, ...slot.state },
-							`保存してあった「${slot.name}」に着替えたよ！`,
-						);
+						this.updateState({ ...DEFAULT_STATE, ...slot.state });
 						this.closeModal();
 					});
 					const delBtn = document.createElement("button");
 					delBtn.type = "button";
 					delBtn.className = "btn";
-					delBtn.textContent = "削除";
+					delBtn.textContent = "消す";
 					delBtn.addEventListener("click", () => {
 						const next = this.readCloset();
 						next[idx] = null;
@@ -838,15 +684,13 @@ export class DressUpApp {
 	}
 
 	private openExportModal(): void {
-		this.sound.playTap();
 		const card = document.createElement("div");
 		card.className = "modal-card";
 		card.innerHTML = `
 			<div class="modal-head">
-				<div class="modal-title">📷 撮影・PNG画像保存</div>
+				<div class="modal-title">📷 画像保存・共有</div>
 				<button type="button" class="btn" id="close-modal">✕</button>
 			</div>
-			<p class="item-desc">形式を選んでダウンロードできます（高解像度 900×1200 または ドット絵 512×512）。</p>
 		`;
 
 		const btns = document.createElement("div");
@@ -859,36 +703,24 @@ export class DressUpApp {
 			b.className = "item-card";
 			b.innerHTML = `<div class="item-name">${label}</div><div class="item-desc">${desc}</div>`;
 			b.addEventListener("click", () => {
-				this.sound.playShutter();
 				onClick();
 				this.closeModal();
 			});
 			btns.appendChild(b);
 		};
 
-		mkBtn(
-			"通常イラスト保存（背景あり）",
-			"現在の背景・エフェクト込みで保存",
-			() =>
-				this.downloadIllustration({ transparent: false, cardWatermark: false }),
+		mkBtn("画像保存（背景あり PNG）", "900×1200 の高解像度画像", () =>
+			this.downloadIllustration({ transparent: false, cardWatermark: false }),
 		);
-		mkBtn(
-			"背景透過イラスト保存（切り抜きPNG）",
-			"動画・サムネ素材に便利な透過PNG",
-			() =>
-				this.downloadIllustration({ transparent: true, cardWatermark: false }),
+		mkBtn("透過PNG保存（切り抜き）", "背景なしの立ち絵素材として保存", () =>
+			this.downloadIllustration({ transparent: true, cardWatermark: false }),
 		);
-		mkBtn(
-			"ロゴ入り記念カード保存",
-			"枠と「束音ロゼ」ネームロゴ付きカード",
-			() =>
-				this.downloadIllustration({ transparent: false, cardWatermark: true }),
+		mkBtn("ロゴ入りカード保存", "枠と「束音ロゼ」ネームロゴ付き", () =>
+			this.downloadIllustration({ transparent: false, cardWatermark: true }),
 		);
-		mkBtn(
-			"64×64 ドット絵拡大保存（512×512 PNG）",
-			"くっきり拡大したちびドット絵",
-			() => this.downloadPixelPng(),
-		);
+		mkBtn("共有URLをコピー", "今のコーデをURLで送れます", () => {
+			void this.copyShareUrl();
+		});
 
 		card.appendChild(btns);
 		card
@@ -916,42 +748,23 @@ export class DressUpApp {
 			: opts.cardWatermark
 				? "card"
 				: "illust";
-		this.triggerDownload(off, `tabane_roze_${suffix}.png`);
-		this.showToast("画像を保存しました！");
-	}
-
-	private downloadPixelPng(): void {
-		const small = document.createElement("canvas");
-		renderPixelRoze(small, this.state, 0, false);
-		const big = document.createElement("canvas");
-		big.width = 512;
-		big.height = 512;
-		const ctx = big.getContext("2d");
-		if (!ctx) return;
-		ctx.imageSmoothingEnabled = false;
-		ctx.drawImage(small, 0, 0, 512, 512);
-		this.triggerDownload(big, "tabane_roze_pixel.png");
-		this.showToast("ドット絵画像を保存しました！");
-	}
-
-	private triggerDownload(canvas: HTMLCanvasElement, filename: string): void {
 		const a = document.createElement("a");
-		a.href = canvas.toDataURL("image/png");
-		a.download = filename;
+		a.href = off.toDataURL("image/png");
+		a.download = `tabane_roze_${suffix}.png`;
 		a.click();
+		this.showToast("画像を保存しました");
 	}
 
 	private async copyShareUrl(): Promise<void> {
-		this.sound.playTap();
 		const encoded = encodeStateToQuery(this.state);
 		const url = new URL(window.location.href);
 		url.searchParams.set("c", encoded);
 		window.history.replaceState(null, "", url.toString());
 		try {
 			await navigator.clipboard.writeText(url.toString());
-			this.showToast("共有URLをクリップボードにコピーしました！");
+			this.showToast("共有URLをコピーしました");
 		} catch {
-			this.showToast("URL欄を更新しました（コピーして共有できます）");
+			this.showToast("アドレス欄のURLをコピーできます");
 		}
 	}
 
@@ -961,6 +774,6 @@ export class DressUpApp {
 		if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
 		this.toastTimer = window.setTimeout(() => {
 			this.toastEl.classList.remove("show");
-		}, 2400);
+		}, 2200);
 	}
 }

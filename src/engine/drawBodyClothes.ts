@@ -209,7 +209,7 @@ export function drawLegwear(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const theme = resolveThemeColors(state.legwearTheme, state.legwearHue);
+	const theme = resolveThemeColors(state.legwearTheme);
 	const legs = [rig.rightLeg, rig.leftLeg];
 
 	if (state.legwear === "barefoot") {
@@ -626,7 +626,7 @@ export function drawBottoms(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const theme = resolveThemeColors(state.bottomsTheme, state.bottomsHue);
+	const theme = resolveThemeColors(state.bottomsTheme);
 	const { hip } = rig;
 
 	if (state.bottoms === "flame_hakama") {
@@ -879,7 +879,7 @@ export function drawTops(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const theme = resolveThemeColors(state.topsTheme, state.topsHue);
+	const theme = resolveThemeColors(state.topsTheme);
 	const { neck, bust, waist, rightArm, leftArm } = rig;
 
 	if (
@@ -1086,10 +1086,7 @@ export function drawTops(
 	}
 
 	if (state.tops === "oversize_hoodie") {
-		const hoodieCol =
-			state.topsTheme === "official" && state.topsHue === 0
-				? "#c96a48"
-				: theme.accent;
+		const hoodieCol = state.topsTheme === "official" ? "#c96a48" : theme.accent;
 		const hemY = waist.y + 58;
 		ctx.beginPath();
 		ctx.moveTo(neck.x - 38, neck.y - 14);
@@ -1371,7 +1368,7 @@ export function drawSleevesAndHands(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const theme = resolveThemeColors(state.sleevesTheme, state.sleevesHue);
+	const theme = resolveThemeColors(state.sleevesTheme);
 	const arms = [rig.rightArm, rig.leftArm];
 
 	for (const arm of arms) {

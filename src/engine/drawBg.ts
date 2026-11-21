@@ -1,11 +1,11 @@
-import type { BackFxId, BgId } from "../data/items";
+import type { BackFxId, BgId, BgTone } from "../data/items";
 import { rgba } from "./color";
 import { CANVAS_H, CANVAS_W, drawYinYang } from "./rig";
 
 export function drawBackground(
 	ctx: CanvasRenderingContext2D,
 	bg: BgId,
-	studioBg: string,
+	bgTone: BgTone,
 	time: number,
 	transparent: boolean,
 ): void {
@@ -14,16 +14,34 @@ export function drawBackground(
 		return;
 	}
 
+	const isLight = bgTone === "light";
+
 	if (bg === "simple_studio") {
-		ctx.fillStyle = studioBg;
+		const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+		if (isLight) {
+			g.addColorStop(0, "#f5f2eb");
+			g.addColorStop(0.65, "#eae7df");
+			g.addColorStop(1, "#dcebe6");
+		} else {
+			g.addColorStop(0, "#141120");
+			g.addColorStop(0.65, "#1b172b");
+			g.addColorStop(1, "#101b1e");
+		}
+		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-		const grad = ctx.createRadialGradient(450, 460, 80, 450, 560, 640);
-		grad.addColorStop(0, "rgba(255,255,255,0.12)");
-		grad.addColorStop(1, "rgba(0,0,0,0.28)");
-		ctx.fillStyle = grad;
+
+		// Subtle top spotlight
+		const rad = ctx.createRadialGradient(450, 440, 80, 450, 560, 620);
+		rad.addColorStop(
+			0,
+			isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.1)",
+		);
+		rad.addColorStop(1, "rgba(0,0,0,0)");
+		ctx.fillStyle = rad;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
 		// Floor shadow oval
-		ctx.fillStyle = "rgba(0,0,0,0.28)";
+		ctx.fillStyle = isLight ? "rgba(34,26,38,0.12)" : "rgba(0,0,0,0.34)";
 		ctx.beginPath();
 		ctx.ellipse(455, 1068, 180, 26, 0, 0, Math.PI * 2);
 		ctx.fill();
@@ -32,15 +50,23 @@ export function drawBackground(
 
 	if (bg === "cyber_china") {
 		const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-		g.addColorStop(0, "#090b16");
-		g.addColorStop(0.55, "#151126");
-		g.addColorStop(1, "#1e1222");
+		if (isLight) {
+			g.addColorStop(0, "#eef6f2");
+			g.addColorStop(0.55, "#f7e9dc");
+			g.addColorStop(1, "#e8d6cd");
+		} else {
+			g.addColorStop(0, "#090b16");
+			g.addColorStop(0.55, "#151126");
+			g.addColorStop(1, "#1e1222");
+		}
 		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-		// Perspective neon floor grid
+		// Perspective floor grid
 		ctx.save();
-		ctx.strokeStyle = "rgba(38, 179, 145, 0.25)";
+		ctx.strokeStyle = isLight
+			? "rgba(25, 130, 105, 0.22)"
+			: "rgba(38, 179, 145, 0.25)";
 		ctx.lineWidth = 2;
 		const horizon = 840;
 		for (let i = -8; i <= 8; i++) {
@@ -59,11 +85,10 @@ export function drawBackground(
 		}
 		ctx.restore();
 
-		// Cyber pagoda / building silhouettes
-		ctx.fillStyle = "#0e0c1b";
+		// Pagoda silhouettes
+		ctx.fillStyle = isLight ? "#dfd3c5" : "#0e0c1b";
 		ctx.fillRect(0, 520, 175, 340);
 		ctx.fillRect(725, 490, 175, 370);
-		// Pagoda roof accents
 		ctx.strokeStyle = "#c92434";
 		ctx.lineWidth = 4;
 		for (const [rx, ry, rw] of [
@@ -72,7 +97,7 @@ export function drawBackground(
 			[715, 490, 165],
 			[735, 380, 130],
 		]) {
-			ctx.fillStyle = "#161124";
+			ctx.fillStyle = isLight ? "#cbb9a9" : "#161124";
 			ctx.beginPath();
 			ctx.moveTo(rx - 18, ry);
 			ctx.quadraticCurveTo(rx + rw / 2, ry - 26, rx + rw + 18, ry);
@@ -83,7 +108,7 @@ export function drawBackground(
 			ctx.stroke();
 		}
 
-		// Glowing Chinese lanterns
+		// Lanterns
 		const lanterns = [
 			[115, 210],
 			[190, 295],
@@ -93,7 +118,7 @@ export function drawBackground(
 		for (let i = 0; i < lanterns.length; i++) {
 			const [lx, baseY] = lanterns[i];
 			const ly = baseY + Math.sin(time * 1.4 + i) * 6;
-			ctx.strokeStyle = "#48333f";
+			ctx.strokeStyle = isLight ? "#7a5e5e" : "#48333f";
 			ctx.lineWidth = 2.5;
 			ctx.beginPath();
 			ctx.moveTo(lx, 0);
@@ -101,7 +126,10 @@ export function drawBackground(
 			ctx.stroke();
 
 			const lg = ctx.createRadialGradient(lx, ly, 6, lx, ly, 75);
-			lg.addColorStop(0, "rgba(255, 82, 108, 0.52)");
+			lg.addColorStop(
+				0,
+				isLight ? "rgba(255, 110, 130, 0.3)" : "rgba(255, 82, 108, 0.52)",
+			);
 			lg.addColorStop(1, "rgba(255, 82, 108, 0)");
 			ctx.fillStyle = lg;
 			ctx.beginPath();
@@ -118,7 +146,6 @@ export function drawBackground(
 			ctx.fillStyle = "#e8bc5c";
 			ctx.fillRect(lx - 13, ly - 35, 26, 6);
 			ctx.fillRect(lx - 11, ly + 29, 22, 6);
-			// Tassel
 			ctx.strokeStyle = "#e8bc5c";
 			ctx.beginPath();
 			ctx.moveTo(lx, ly + 35);
@@ -126,12 +153,12 @@ export function drawBackground(
 			ctx.stroke();
 		}
 
-		// Neon sign diamond behind Roze
+		// Diamond frame
 		const pulse = 0.65 + 0.35 * Math.sin(time * 2.2);
 		ctx.save();
 		ctx.translate(450, 460);
 		ctx.rotate(Math.PI / 4);
-		ctx.strokeStyle = `rgba(38, 200, 160, ${0.32 * pulse})`;
+		ctx.strokeStyle = `rgba(38, 179, 145, ${0.32 * pulse})`;
 		ctx.lineWidth = 6;
 		ctx.strokeRect(-210, -210, 420, 420);
 		ctx.strokeStyle = `rgba(225, 45, 75, ${0.28 * pulse})`;
@@ -143,29 +170,28 @@ export function drawBackground(
 
 	if (bg === "ghost_shrine") {
 		const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-		g.addColorStop(0, "#0b0918");
-		g.addColorStop(0.6, "#16142e");
-		g.addColorStop(1, "#0d1a1c");
+		if (isLight) {
+			g.addColorStop(0, "#e2f3ee");
+			g.addColorStop(0.58, "#f3e7ee");
+			g.addColorStop(1, "#cce2da");
+		} else {
+			g.addColorStop(0, "#0b0918");
+			g.addColorStop(0.6, "#16142e");
+			g.addColorStop(1, "#0d1a1c");
+		}
 		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-		// Giant crescent/full pale jade moon
-		const mg = ctx.createRadialGradient(450, 260, 40, 450, 260, 280);
-		mg.addColorStop(0, "rgba(180, 255, 232, 0.35)");
-		mg.addColorStop(0.55, "rgba(110, 220, 195, 0.12)");
-		mg.addColorStop(1, "rgba(110, 220, 195, 0)");
-		ctx.fillStyle = mg;
-		ctx.beginPath();
-		ctx.arc(450, 260, 280, 0, Math.PI * 2);
-		ctx.fill();
-
-		ctx.fillStyle = "rgba(232, 255, 248, 0.88)";
+		// Moon / Sun disc
+		ctx.fillStyle = isLight
+			? "rgba(255, 255, 255, 0.85)"
+			: "rgba(232, 255, 248, 0.88)";
 		ctx.beginPath();
 		ctx.arc(450, 255, 138, 0, Math.PI * 2);
 		ctx.fill();
 
-		// Bamboo stalks swaying gently
-		ctx.strokeStyle = "#162d2c";
+		// Bamboo stalks
+		ctx.strokeStyle = isLight ? "#7eb09f" : "#162d2c";
 		for (let i = 0; i < 11; i++) {
 			const bx = i < 5 ? 45 + i * 48 : 655 + (i - 5) * 48;
 			const bend = Math.sin(time * 0.9 + i) * 14;
@@ -176,10 +202,9 @@ export function drawBackground(
 			ctx.stroke();
 		}
 
-		// Shrine torii / stone floor mist
 		const mist = ctx.createLinearGradient(0, 820, 0, CANVAS_H);
 		mist.addColorStop(0, "rgba(255, 128, 190, 0)");
-		mist.addColorStop(0.6, "rgba(255, 128, 190, 0.14)");
+		mist.addColorStop(0.6, "rgba(255, 128, 190, 0.16)");
 		mist.addColorStop(1, "rgba(45, 150, 130, 0.28)");
 		ctx.fillStyle = mist;
 		ctx.fillRect(0, 820, CANVAS_W, 380);
@@ -188,9 +213,15 @@ export function drawBackground(
 
 	if (bg === "utau_stage") {
 		const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-		g.addColorStop(0, "#0b0718");
-		g.addColorStop(0.65, "#190f32");
-		g.addColorStop(1, "#090a14");
+		if (isLight) {
+			g.addColorStop(0, "#e5faf4");
+			g.addColorStop(0.65, "#f7e9f4");
+			g.addColorStop(1, "#d8e6ef");
+		} else {
+			g.addColorStop(0, "#0b0718");
+			g.addColorStop(0.65, "#190f32");
+			g.addColorStop(1, "#090a14");
+		}
 		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -203,7 +234,7 @@ export function drawBackground(
 			ctx.rotate(angle);
 			const sg = ctx.createLinearGradient(0, 0, 0, 1050);
 			const col = i % 2 === 0 ? "53, 240, 200" : "255, 78, 147";
-			sg.addColorStop(0, `rgba(${col}, 0.30)`);
+			sg.addColorStop(0, `rgba(${col}, ${isLight ? 0.24 : 0.3})`);
 			sg.addColorStop(1, `rgba(${col}, 0)`);
 			ctx.fillStyle = sg;
 			ctx.beginPath();
@@ -225,14 +256,13 @@ export function drawBackground(
 				Math.abs(Math.sin(time * 4.5 + i * 0.45)) * 135 +
 				Math.abs(Math.cos(time * 2.8 - i * 0.3)) * 65;
 			ctx.fillStyle =
-				i % 2 === 0 ? "rgba(53, 240, 200, 0.25)" : "rgba(255, 92, 160, 0.22)";
+				i % 2 === 0 ? "rgba(38, 179, 145, 0.28)" : "rgba(255, 92, 160, 0.24)";
 			ctx.fillRect(i * barW + 4, 860 - h, barW - 8, h);
 		}
 
-		// Stage floor reflection
-		ctx.fillStyle = "#121022";
+		ctx.fillStyle = isLight ? "#cfe4df" : "#121022";
 		ctx.fillRect(0, 860, CANVAS_W, 340);
-		ctx.strokeStyle = "rgba(53, 240, 200, 0.48)";
+		ctx.strokeStyle = "rgba(38, 179, 145, 0.55)";
 		ctx.lineWidth = 4;
 		ctx.beginPath();
 		ctx.moveTo(0, 860);
@@ -243,43 +273,48 @@ export function drawBackground(
 
 	if (bg === "onj_room") {
 		const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-		g.addColorStop(0, "#171424");
-		g.addColorStop(1, "#221c33");
+		if (isLight) {
+			g.addColorStop(0, "#f5efe6");
+			g.addColorStop(1, "#e3ddd6");
+		} else {
+			g.addColorStop(0, "#171424");
+			g.addColorStop(1, "#221c33");
+		}
 		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-		// Wall poster & shelf
-		ctx.fillStyle = "#2b243f";
+		// Wall poster
+		ctx.fillStyle = isLight ? "#e0d8cc" : "#2b243f";
 		ctx.fillRect(70, 150, 210, 280);
-		ctx.strokeStyle = "#3c3357";
+		ctx.strokeStyle = isLight ? "#b8ad9f" : "#3c3357";
 		ctx.lineWidth = 6;
 		ctx.strokeRect(70, 150, 210, 280);
 		drawYinYang(ctx, 175, 270, 52, "#36a888", "#f5f2eb", "#dcb45c", false, 0);
 
 		// Window on right
-		ctx.fillStyle = "#0e1529";
+		ctx.fillStyle = isLight ? "#b9e5f5" : "#0e1529";
 		ctx.fillRect(635, 130, 200, 310);
-		ctx.strokeStyle = "#3a3454";
+		ctx.strokeStyle = isLight ? "#a69b8d" : "#3a3454";
 		ctx.lineWidth = 8;
 		ctx.strokeRect(635, 130, 200, 310);
-		ctx.fillStyle = "rgba(255, 240, 190, 0.7)";
-		for (let i = 0; i < 12; i++) {
-			ctx.fillRect(655 + ((i * 37) % 160), 155 + ((i * 59) % 240), 3, 3);
+		if (!isLight) {
+			ctx.fillStyle = "rgba(255, 240, 190, 0.7)";
+			for (let i = 0; i < 12; i++) {
+				ctx.fillRect(655 + ((i * 37) % 160), 155 + ((i * 59) % 240), 3, 3);
+			}
 		}
 
-		// Desk & dual monitors silhouette
-		ctx.fillStyle = "#161220";
+		// Desk & monitors
+		ctx.fillStyle = isLight ? "#cbbba9" : "#161220";
 		ctx.fillRect(0, 820, CANVAS_W, 380);
-		ctx.fillStyle = "#27223a";
+		ctx.fillStyle = isLight ? "#dfd2c3" : "#27223a";
 		ctx.fillRect(40, 795, 820, 32);
-		// Left monitor
-		ctx.fillStyle = "#14262e";
+		ctx.fillStyle = isLight ? "#22343d" : "#14262e";
 		ctx.strokeStyle = "#38d8b0";
 		ctx.lineWidth = 3;
 		ctx.fillRect(60, 620, 195, 135);
 		ctx.strokeRect(60, 620, 195, 135);
-		// Piano / MIDI keyboard keys
-		ctx.fillStyle = "#e8e6f0";
+		ctx.fillStyle = "#f4f2f8";
 		ctx.fillRect(620, 775, 210, 22);
 		ctx.fillStyle = "#1b1826";
 		for (let k = 0; k < 14; k++) {
@@ -290,36 +325,58 @@ export function drawBackground(
 		return;
 	}
 
-	// sunset_sea
+	// sunset_sea (light = bright daytime seaside, dark = twilight sunset)
 	const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-	g.addColorStop(0, "#24193c");
-	g.addColorStop(0.45, "#9c3b5c");
-	g.addColorStop(0.72, "#f0865c");
-	g.addColorStop(1, "#2b2038");
+	if (isLight) {
+		g.addColorStop(0, "#7bc6eb");
+		g.addColorStop(0.55, "#ccebfa");
+		g.addColorStop(1, "#eaf3f7");
+	} else {
+		g.addColorStop(0, "#24193c");
+		g.addColorStop(0.45, "#9c3b5c");
+		g.addColorStop(0.72, "#f0865c");
+		g.addColorStop(1, "#2b2038");
+	}
 	ctx.fillStyle = g;
 	ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-	// Sun
-	const sunG = ctx.createRadialGradient(640, 560, 20, 640, 560, 165);
-	sunG.addColorStop(0, "#fff2c2");
-	sunG.addColorStop(0.45, "#ffae66");
-	sunG.addColorStop(1, "rgba(255, 130, 90, 0)");
-	ctx.fillStyle = sunG;
-	ctx.beginPath();
-	ctx.arc(640, 560, 165, 0, Math.PI * 2);
-	ctx.fill();
+	if (isLight) {
+		// Soft clouds
+		ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+		for (const [cx, cy, r] of [
+			[180, 220, 56],
+			[235, 210, 72],
+			[680, 290, 64],
+			[745, 280, 50],
+		]) {
+			ctx.beginPath();
+			ctx.arc(cx, cy, r, 0, Math.PI * 2);
+			ctx.fill();
+		}
+	} else {
+		const sunG = ctx.createRadialGradient(640, 560, 20, 640, 560, 165);
+		sunG.addColorStop(0, "#fff2c2");
+		sunG.addColorStop(0.45, "#ffae66");
+		sunG.addColorStop(1, "rgba(255, 130, 90, 0)");
+		ctx.fillStyle = sunG;
+		ctx.beginPath();
+		ctx.arc(640, 560, 165, 0, Math.PI * 2);
+		ctx.fill();
+	}
 
-	// Sea horizon + sparkling ripples
-	ctx.fillStyle = "#35284d";
+	// Sea horizon
+	ctx.fillStyle = isLight ? "#4da6cf" : "#35284d";
 	ctx.fillRect(0, 720, CANVAS_W, 200);
-	ctx.fillStyle = "rgba(255, 208, 128, 0.55)";
+	ctx.fillStyle = isLight
+		? "rgba(255, 255, 255, 0.55)"
+		: "rgba(255, 208, 128, 0.55)";
 	for (let r = 0; r < 14; r++) {
 		const w = 130 - r * 7 + Math.sin(time * 2 + r) * 14;
 		ctx.fillRect(640 - w / 2, 728 + r * 12, w, 4);
 	}
 
-	// Station platform & fence
-	ctx.fillStyle = "#1f192b";
+	// Station platform
+	ctx.fillStyle = isLight ? "#d4d0c8" : "#1f192b";
 	ctx.fillRect(0, 905, CANVAS_W, 295);
 	ctx.strokeStyle = "#f2a65a";
 	ctx.lineWidth = 4;
@@ -327,7 +384,7 @@ export function drawBackground(
 	ctx.moveTo(0, 908);
 	ctx.lineTo(CANVAS_W, 908);
 	ctx.stroke();
-	ctx.strokeStyle = "#3f3454";
+	ctx.strokeStyle = isLight ? "#7a8594" : "#3f3454";
 	ctx.lineWidth = 4;
 	ctx.beginPath();
 	ctx.moveTo(0, 840);
@@ -370,7 +427,6 @@ export function drawBackEffect(
 			ctx.arc(wx, wy, w.r * 2.2, 0, Math.PI * 2);
 			ctx.fill();
 
-			// Flame tail tip
 			ctx.fillStyle = rgba(w.c, 0.78);
 			ctx.beginPath();
 			ctx.moveTo(wx - w.r * 0.45, wy);
@@ -397,7 +453,7 @@ export function drawBackEffect(
 		ctx.translate(450, 440);
 		ctx.rotate(time * 0.22);
 
-		ctx.strokeStyle = "rgba(220, 180, 92, 0.55)";
+		ctx.strokeStyle = "rgba(215, 165, 65, 0.58)";
 		ctx.lineWidth = 4;
 		ctx.beginPath();
 		ctx.arc(0, 0, 260, 0, Math.PI * 2);
@@ -407,7 +463,6 @@ export function drawBackEffect(
 		ctx.arc(0, 0, 215, 0, Math.PI * 2);
 		ctx.stroke();
 
-		// Octagon + 8 trigrams
 		ctx.strokeStyle = "rgba(38, 179, 145, 0.65)";
 		ctx.lineWidth = 5;
 		for (let i = 0; i < 8; i++) {
@@ -443,10 +498,10 @@ export function drawBackEffect(
 			const w = 90 + ((i * 53) % 160);
 			const x = i % 2 === 0 ? 110 + i * 17 : 640 - i * 19;
 			ctx.fillStyle =
-				i % 2 === 0 ? "rgba(53, 240, 200, 0.35)" : "rgba(255, 78, 147, 0.35)";
+				i % 2 === 0 ? "rgba(38, 200, 165, 0.42)" : "rgba(255, 78, 147, 0.38)";
 			ctx.fillRect(x, y, w, 7);
 		}
-		ctx.strokeStyle = "rgba(53, 240, 200, 0.42)";
+		ctx.strokeStyle = "rgba(38, 200, 165, 0.45)";
 		ctx.lineWidth = 3;
 		ctx.strokeRect(190, 140, 520, 860);
 		ctx.restore();
@@ -461,10 +516,10 @@ export function drawBackEffect(
 		const alpha = Math.sin(((880 - ny) / 740) * Math.PI);
 		ctx.fillStyle =
 			i % 3 === 0
-				? `rgba(53, 240, 200, ${0.85 * alpha})`
+				? `rgba(38, 195, 160, ${0.85 * alpha})`
 				: i % 3 === 1
-					? `rgba(255, 110, 175, ${0.85 * alpha})`
-					: `rgba(255, 225, 130, ${0.85 * alpha})`;
+					? `rgba(240, 82, 150, ${0.85 * alpha})`
+					: `rgba(225, 175, 70, ${0.85 * alpha})`;
 		ctx.font = "bold 34px sans-serif";
 		ctx.fillText(i % 2 === 0 ? "♪" : "♫", nx, ny);
 	}
@@ -478,8 +533,7 @@ export function drawForegroundEmbers(
 ): void {
 	if (fx === "none") return;
 	ctx.save();
-	const count = 12;
-	for (let i = 0; i < count; i++) {
+	for (let i = 0; i < 12; i++) {
 		const px = 140 + ((i * 137) % 620) + Math.sin(time * 1.8 + i) * 22;
 		const py = 1080 - ((time * 55 + i * 110) % 920);
 		const r = 2.5 + (i % 3) * 1.4;
@@ -490,7 +544,7 @@ export function drawForegroundEmbers(
 					: "#ff4e93"
 				: i % 2 === 0
 					? "#ff80bd"
-					: "#9ff5df";
+					: "#4de2be";
 		ctx.fillStyle = rgba(col, 0.7);
 		ctx.beginPath();
 		ctx.arc(px, py, r, 0, Math.PI * 2);

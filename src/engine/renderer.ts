@@ -34,7 +34,7 @@ export function renderCharacter(
 	ctx.save();
 	ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-	drawBackground(ctx, state.bg, state.studioBg, rig.time, transparent);
+	drawBackground(ctx, state.bg, state.bgTone, rig.time, transparent);
 	if (!transparent) {
 		drawBackEffect(ctx, state.backFx, rig.time);
 	}

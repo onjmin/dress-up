@@ -94,7 +94,7 @@ export function shiftHueHex(hex: string, deg: number): string {
 
 export function resolveThemeColors(
 	themeId: ColorThemeId,
-	hueShift: number,
+	hueShift = 0,
 ): ColorThemeMeta {
 	const base = getTheme(themeId);
 	if (hueShift === 0) return base;
@@ -114,8 +114,8 @@ export function resolveThemeColors(
 
 export function resolveHairColors(
 	colorId: HairColorId,
-	mainHue: number,
-	innerHue: number,
+	mainHue = 0,
+	innerHue = 0,
 ): HairColorMeta {
 	const base = getHairColor(colorId);
 	return {

@@ -13,7 +13,7 @@ export function drawBackHair(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const hc = resolveHairColors(state.hairColor, state.hairHue, state.innerHue);
+	const hc = resolveHairColors(state.hairColor);
 	const sway = rig.sway * 5;
 	ctx.save();
 	ctx.translate(rig.head.x, rig.head.y);
@@ -288,7 +288,7 @@ export function drawHeadAndFace(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const hc = resolveHairColors(state.hairColor, state.hairHue, state.innerHue);
+	const hc = resolveHairColors(state.hairColor);
 	ctx.save();
 	ctx.translate(rig.head.x, rig.head.y);
 	ctx.rotate(rig.headTilt);
@@ -517,7 +517,7 @@ export function drawFrontHairAndOrnaments(
 	rig: CharacterRig,
 	state: DressUpState,
 ): void {
-	const hc = resolveHairColors(state.hairColor, state.hairHue, state.innerHue);
+	const hc = resolveHairColors(state.hairColor);
 	const sway = rig.sway * 4.5;
 
 	ctx.save();
@@ -693,7 +693,7 @@ export function drawFrontHairAndOrnaments(
 	}
 
 	// Headwear
-	const hwTheme = resolveThemeColors(state.headwearTheme, 0);
+	const hwTheme = resolveThemeColors(state.topsTheme);
 	if (state.headwear === "jiangshi_hat") {
 		ctx.fillStyle = "#1f1d29";
 		ctx.strokeStyle = INK;
